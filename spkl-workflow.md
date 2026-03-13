@@ -15,7 +15,24 @@ Ask the user for the following if not already provided:
 4. **Input parameters** — name, type, required/optional, label for each
 5. **Output parameters** — name, type, label for each
 6. **Group name** — logical grouping shown in Power Automate / classic workflow designer
-7. **Additional activity classes?** — list any extra activities to scaffold
+7. **Does the activity need Newtonsoft.Json (Json.NET) or other third-party NuGet dependencies?**
+   - If **yes**: the project must be structured as a **Plugin Package** (NuGet package deployed to the `PluginPackage` table). Ask the user to confirm this approach before proceeding.
+   - If **no**: standard single-assembly workflow activity (no bundling needed).
+8. **Additional activity classes?** — list any extra activities to scaffold
+
+---
+
+## Project Type Decision
+
+### Standard Workflow Activity (no third-party dependencies)
+
+Use when the activity only references `Microsoft.CrmSdk.*` packages already present in the Dataverse sandbox.
+
+### Plugin Package (has third-party dependencies, e.g. Newtonsoft.Json)
+
+Use when the activity needs NuGet packages not available in the Dataverse sandbox. The project is packaged as a `.nupkg` and deployed to Dataverse as a `PluginPackage` record.
+
+> **ILMerge is NOT supported** by Microsoft for Dataverse plugins or workflow activities. Plugin Packages are the official replacement.
 
 ---
 
@@ -42,7 +59,7 @@ Ask the user for the following if not already provided:
 
 ## File Contents
 
-### `<ProjectName>/<ProjectName>.csproj`
+### `<ProjectName>/<ProjectName>.csproj` — Standard Workflow Activity
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -58,9 +75,47 @@ Ask the user for the following if not already provided:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.49" />
-    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.49" />
-    <PackageReference Include="spkl" Version="1.2.8">
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60" />
+    <PackageReference Include="spkl" Version="1.0.640">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+```
+
+---
+
+### `<ProjectName>/<ProjectName>.csproj` — Plugin Package (with dependencies)
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildProjectName).snk</AssemblyOriginatorKeyFile>
+    <Optimize>true</Optimize>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+
+    <!-- Plugin Package settings -->
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>$(MSBuildProjectName)</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>YourName</Authors>
+    <Description>Dataverse Plugin Package for $(MSBuildProjectName)</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Add other dependencies here -->
+    <PackageReference Include="spkl" Version="1.0.640">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
@@ -69,6 +124,8 @@ Ask the user for the following if not already provided:
 ```
 
 > **Note:** `Microsoft.CrmSdk.Workflow` provides `CodeActivity`, `InArgument<T>`, `OutArgument<T>`, and other workflow-specific types.
+
+> **Note:** Run `sn -k <ProjectName>.snk` to generate the strong name key. Commit the `.snk` to source control.
 
 ---
 
@@ -145,7 +202,7 @@ namespace <Namespace>
 
 ### `<ProjectName>/<ActivityClassName>.cs`
 
-Generate one class per workflow activity. Use `CrmPluginRegistration` to register with spkl. Map each user-provided input/output parameter to `InArgument<T>` / `OutArgument<T>` properties.
+Generate one class per workflow activity. Use `CrmPluginRegistration` to register with spkl.
 
 ```csharp
 using System.Activities;
@@ -215,20 +272,46 @@ namespace <Namespace>
 
 ---
 
-### `<ProjectName>/spkl.json`
+### `<ProjectName>/spkl.json` — Standard Workflow Activity
+
+> **Note:** Workflow activities are deployed using the `plugins` section in `spkl.json`, just like regular plugins. Use `spkl workflow` command to deploy.
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/scottdurow/SparkleXrm/master/spkl/SparkleXrm.Tasks/spkl.schema.json",
-  "workflow": [
+  "plugins": [
     {
       "assemblypath": "bin\\Debug\\net462\\<ProjectName>.dll",
       "profile": "default",
+      "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     },
     {
       "assemblypath": "bin\\Release\\net462\\<ProjectName>.dll",
       "profile": "release",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    }
+  ]
+}
+```
+
+### `<ProjectName>/spkl.json` — Plugin Package (with dependencies)
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/scottdurow/SparkleXrm/master/spkl/SparkleXrm.Tasks/spkl.schema.json",
+  "plugins": [
+    {
+      "assemblypath": "bin\\Debug\\<ProjectName>.1.0.0.nupkg",
+      "profile": "default",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    },
+    {
+      "assemblypath": "bin\\Release\\<ProjectName>.1.0.0.nupkg",
+      "profile": "release",
+      "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     }
   ]
@@ -269,7 +352,7 @@ Tell the user:
    sn -k <ProjectName>.snk
    ```
 
-2. **Update connection string** in `spkl.json`. Never commit credentials — use environment variables or a gitignored local override file.
+2. **Update connection string** in `spkl.json`. Never commit credentials.
 
 3. **Build and deploy:**
    ```
@@ -278,12 +361,12 @@ Tell the user:
    ```
 
 4. **Using in Power Automate / Classic Workflow:**
-   - The activity will appear under the group name specified in `[CrmPluginRegistration]`
-   - Input/output parameters map to the step's input/output properties in the designer
+   - The activity appears under the group name specified in `[CrmPluginRegistration]`
+   - Input/output parameters map to step properties in the designer
 
-5. **Debugging tips:**
-   - Enable tracing in the Plugin Registration Tool for sandbox assembly
-   - Tracing output appears in the `PluginTraceLog` table
+5. **Plugin Package only — versioning:** bump `<Version>` in the `.csproj` before each deploy.
+
+6. **Debugging:** Enable tracing in the Plugin Registration Tool. Output appears in the `PluginTraceLog` table.
 
 ---
 
@@ -300,4 +383,6 @@ Tell the user:
 - [ ] `InvalidPluginExecutionException` used for user-facing errors
 - [ ] Tracing used throughout for diagnostics
 - [ ] Connection strings not committed to source control
+- [ ] Third-party dependencies (e.g. Newtonsoft.Json) handled via Plugin Package, NOT ILMerge
+- [ ] Plugin Package version bumped on each deployment when using NuGet package approach
 - [ ] Group name is consistent across all activities in the same assembly

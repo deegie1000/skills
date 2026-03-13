@@ -16,13 +16,30 @@ Ask the user for the following if not already provided:
 5. **Execution mode** — Synchronous or Asynchronous
 6. **Filtering attributes** — comma-separated logical names, or none
 7. **Pre/Post images needed?** — yes/no and which attributes
-8. **Additional plugin classes?** — list any extra entity/message combos
+8. **Does the plugin need Newtonsoft.Json (Json.NET) or other third-party NuGet dependencies?**
+   - If **yes**: the project must be structured as a **Plugin Package** (NuGet package deployed to the `PluginPackage` table). Ask the user to confirm this approach before proceeding.
+   - If **no**: standard single-assembly plugin (no bundling needed).
+9. **Additional plugin classes?** — list any extra entity/message combos
+
+---
+
+## Project Type Decision
+
+### Standard Plugin (no third-party dependencies)
+
+Use when the plugin only references `Microsoft.CrmSdk.*` / `Microsoft.PowerPlatform.Dataverse.Client` packages that are already present in the Dataverse sandbox. This is the simpler setup.
+
+### Plugin Package (has third-party dependencies, e.g. Newtonsoft.Json)
+
+Use when the plugin needs NuGet packages not already available in the Dataverse sandbox (e.g. `Newtonsoft.Json`, `Polly`, `FluentValidation`). The project is packaged as a `.nupkg` and deployed to Dataverse as a `PluginPackage` record. Dataverse then loads the assembly and its dependencies from the package.
+
+> **ILMerge is NOT supported** by Microsoft for Dataverse plugins. Plugin Packages are the official replacement.
 
 ---
 
 ## Generate the Project Structure
 
-Create the following folder and file structure:
+### Standard Plugin
 
 ```
 <ProjectName>/
@@ -42,11 +59,29 @@ Create the following folder and file structure:
     └── <PluginClassName>.cs
 ```
 
+### Plugin Package (with dependencies)
+
+```
+<ProjectName>/
+├── <ProjectName>.sln
+├── spkl/
+│   ├── spkl.csproj
+│   ├── packages.config
+│   ├── deploy-plugins.bat
+│   └── deploy-plugins.sh
+└── <ProjectName>/
+    ├── <ProjectName>.csproj       ← configured to produce a .nupkg
+    ├── <ProjectName>.snk
+    ├── spkl.json                  ← references the .nupkg
+    ├── PluginBase.cs
+    └── <PluginClassName>.cs
+```
+
 ---
 
 ## File Contents
 
-### `<ProjectName>/<ProjectName>.csproj`
+### `<ProjectName>/<ProjectName>.csproj` — Standard Plugin
 
 SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
 
@@ -64,8 +99,8 @@ SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.49" />
-    <PackageReference Include="spkl" Version="1.2.8">
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <PackageReference Include="spkl" Version="1.0.640">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
@@ -73,7 +108,44 @@ SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
 </Project>
 ```
 
-> **Note:** Tell the user to run `sn -k <ProjectName>.snk` in the project directory to generate the strong name key, or use Visual Studio's project properties to create it. Commit the `.snk` file to source control.
+---
+
+### `<ProjectName>/<ProjectName>.csproj` — Plugin Package (with dependencies)
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildProjectName).snk</AssemblyOriginatorKeyFile>
+    <Optimize>true</Optimize>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+
+    <!-- Plugin Package settings -->
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>$(MSBuildProjectName)</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>YourName</Authors>
+    <Description>Dataverse Plugin Package for $(MSBuildProjectName)</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Add other dependencies here -->
+    <PackageReference Include="spkl" Version="1.0.640">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+```
+
+> **Note:** Tell the user to run `sn -k <ProjectName>.snk` to generate the strong name key, or use Visual Studio → Project Properties → Signing. Commit the `.snk` to source control.
 
 ---
 
@@ -150,7 +222,7 @@ namespace <Namespace>
 
 ### `<ProjectName>/<PluginClassName>.cs`
 
-Generate one class per plugin step. Use `CrmPluginRegistration` attributes to register steps — spkl reads these at deploy time.
+Generate one class per plugin step. Use `CrmPluginRegistration` attributes — spkl reads these at deploy time.
 
 ```csharp
 using Microsoft.Xrm.Sdk;
@@ -187,11 +259,21 @@ namespace <Namespace>
 }
 ```
 
+> **Pre/Post image availability:**
+> | Message | Stage | PreImage | PostImage |
+> |---------|-------|----------|-----------|
+> | Create  | PRE   | No       | No        |
+> | Create  | POST  | No       | Yes       |
+> | Update  | PRE   | Yes      | No        |
+> | Update  | POST  | Yes      | Yes       |
+> | Delete  | PRE   | Yes      | No        |
+> | Delete  | POST  | Yes      | No        |
+
 > **Multiple steps:** `[CrmPluginRegistration]` supports `AllowMultiple = true` — stack multiple attributes on one class for multiple step registrations.
 
 ---
 
-### `<ProjectName>/spkl.json`
+### `<ProjectName>/spkl.json` — Standard Plugin
 
 ```json
 {
@@ -213,6 +295,28 @@ namespace <Namespace>
 }
 ```
 
+### `<ProjectName>/spkl.json` — Plugin Package (with dependencies)
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/scottdurow/SparkleXrm/master/spkl/SparkleXrm.Tasks/spkl.schema.json",
+  "plugins": [
+    {
+      "assemblypath": "bin\\Debug\\<ProjectName>.1.0.0.nupkg",
+      "profile": "default",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    },
+    {
+      "assemblypath": "bin\\Release\\<ProjectName>.1.0.0.nupkg",
+      "profile": "release",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    }
+  ]
+}
+```
+
 > **Connection string formats:**
 > - Interactive login: `AuthType=OAuth;Url=https://org.crm.dynamics.com;AppId=51f81489-12ee-4a9e-aaae-a2591f45987d;RedirectUri=app://58145B91-0C36-4500-8554-080854F2AC97;LoginPrompt=Auto`
 > - Service principal: `AuthType=ClientSecret;Url=https://org.crm.dynamics.com;ClientId=<AppId>;ClientSecret=<Secret>`
@@ -224,23 +328,11 @@ namespace <Namespace>
 
 ```bat
 @echo off
-cd /d "%~dp0"
 dotnet build ..\<ProjectName>\<ProjectName>.csproj -c Debug
-"%~dp0..\packages\spkl.*\tools\spkl.exe" plugins %* || (
-  for /f "delims=" %%i in ('dir /b /s "%~dp0..\packages\spkl.*\tools\spkl.exe" 2^>nul') do set SPKL=%%i
-  "%SPKL%" plugins %*
-)
+dotnet tool run spkl plugins ..\<ProjectName>\spkl.json %*
 ```
 
-Or use the spkl NuGet tools path for SDK-style projects:
-
-```bat
-@echo off
-dotnet build ..\<ProjectName>\<ProjectName>.csproj -c Debug
-dotnet tool run spkl plugins ..\<ProjectName>\spkl.json
-```
-
-### `spkl/deploy-plugins.sh` (cross-platform)
+### `spkl/deploy-plugins.sh`
 
 ```bash
 #!/bin/bash
@@ -261,7 +353,7 @@ Tell the user:
    ```
    Or use Visual Studio → Project Properties → Signing → New key file.
 
-2. **Update connection string** in `spkl.json` (never commit secrets — use environment variables or a local `spkl.json` override outside source control).
+2. **Update connection string** in `spkl.json`. Never commit secrets — use environment variables or a gitignored local override file.
 
 3. **Build and deploy:**
    ```
@@ -270,13 +362,12 @@ Tell the user:
    ```
    Or run `deploy-plugins.bat` / `deploy-plugins.sh`.
 
-4. **Instrument existing org** (if connecting to an existing deployment):
+4. **Instrument existing org** (pull step registrations from an already-deployed assembly):
    ```
    spkl instrument
    ```
-   This downloads existing plugin step registrations and adds `[CrmPluginRegistration]` attributes to your classes.
 
-5. **Add `.snk` to source control** but add connection strings to `.gitignore`.
+5. **Plugin Package only — versioning:** bump `<Version>` in the `.csproj` before each deploy so Dataverse registers a new package version.
 
 ---
 
@@ -292,4 +383,5 @@ Tell the user:
 - [ ] Filtering attributes specified on Update steps to avoid unnecessary executions
 - [ ] Pre/Post images defined only for attributes actually needed
 - [ ] Connection strings not committed to source control
-- [ ] Each plugin assembly has its own `.snk` file
+- [ ] Third-party dependencies (e.g. Newtonsoft.Json) handled via Plugin Package, NOT ILMerge
+- [ ] Plugin Package version bumped on each deployment when using NuGet package approach
