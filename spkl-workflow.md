@@ -75,10 +75,15 @@ Use when the activity needs NuGet packages not available in the Dataverse sandbo
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
-    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60" />
+    <!-- PrivateAssets=All prevents the CRM SDK from being bundled — it's already present in the sandbox -->
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="spkl" Version="1.0.640">
-      <PrivateAssets>all</PrivateAssets>
+      <PrivateAssets>All</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
   </ItemGroup>
@@ -111,12 +116,17 @@ Use when the activity needs NuGet packages not available in the Dataverse sandbo
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
-    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60" />
+    <!-- REQUIRED: PrivateAssets=All on CRM SDK — Dataverse will reject packages that bundle these assemblies -->
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CrmSdk.Workflow" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- Add other dependencies here -->
     <PackageReference Include="spkl" Version="1.0.640">
-      <PrivateAssets>all</PrivateAssets>
+      <PrivateAssets>All</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
   </ItemGroup>
@@ -282,13 +292,15 @@ namespace <Namespace>
   "plugins": [
     {
       "assemblypath": "bin\\Debug\\net462\\<ProjectName>.dll",
-      "profile": "default",
+      "profile": "default,debug",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     },
     {
       "assemblypath": "bin\\Release\\net462\\<ProjectName>.dll",
       "profile": "release",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     }
@@ -304,13 +316,15 @@ namespace <Namespace>
   "plugins": [
     {
       "assemblypath": "bin\\Debug\\<ProjectName>.1.0.0.nupkg",
-      "profile": "default",
+      "profile": "default,debug",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     },
     {
       "assemblypath": "bin\\Release\\<ProjectName>.1.0.0.nupkg",
       "profile": "release",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     }
@@ -384,5 +398,7 @@ Tell the user:
 - [ ] Tracing used throughout for diagnostics
 - [ ] Connection strings not committed to source control
 - [ ] Third-party dependencies (e.g. Newtonsoft.Json) handled via Plugin Package, NOT ILMerge
+- [ ] `PrivateAssets=All` set on `Microsoft.CrmSdk.CoreAssemblies` and `Microsoft.CrmSdk.Workflow` (prevents SDK from being bundled — Dataverse will reject packages that include them)
 - [ ] Plugin Package version bumped on each deployment when using NuGet package approach
+- [ ] `solution` field populated in `spkl.json` so the assembly is automatically added to the correct solution
 - [ ] Group name is consistent across all activities in the same assembly

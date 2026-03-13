@@ -99,9 +99,12 @@ SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <!-- PrivateAssets=All prevents the CRM SDK from being bundled — it's already present in the sandbox -->
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="spkl" Version="1.0.640">
-      <PrivateAssets>all</PrivateAssets>
+      <PrivateAssets>All</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
   </ItemGroup>
@@ -134,11 +137,14 @@ SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+    <!-- REQUIRED: PrivateAssets=All on CRM SDK — Dataverse will reject packages that bundle these assemblies -->
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60">
+      <PrivateAssets>All</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- Add other dependencies here -->
     <PackageReference Include="spkl" Version="1.0.640">
-      <PrivateAssets>all</PrivateAssets>
+      <PrivateAssets>All</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
   </ItemGroup>
@@ -151,25 +157,45 @@ SDK-style project targeting .NET Framework 4.6.2 with assembly signing:
 
 ### `<ProjectName>/PluginBase.cs`
 
+Follows the Scott Durow / Microsoft-endorsed pattern with an `ILocalPluginContext` interface (enables unit testing via mocks) and a `Type`-based constructor.
+
 ```csharp
 using System;
 using Microsoft.Xrm.Sdk;
 
 namespace <Namespace>
 {
+    public interface ILocalPluginContext
+    {
+        IServiceProvider ServiceProvider { get; }
+        IPluginExecutionContext PluginExecutionContext { get; }
+        IOrganizationService OrganizationService { get; }
+        IOrganizationService InitiatingUserOrganizationService { get; }
+        ITracingService TracingService { get; }
+        void Trace(string message);
+    }
+
     /// <summary>
     /// Base class for all Dataverse plugins. Provides a strongly-typed
     /// local context with tracing, service factory, and execution context.
     /// </summary>
     public abstract class PluginBase : IPlugin
     {
+        protected string ChildClassName { get; }
+
+        /// <param name="childClassName">Pass typeof(YourPluginClass) from the derived constructor.</param>
+        protected PluginBase(Type childClassName)
+        {
+            ChildClassName = childClassName?.ToString() ?? throw new ArgumentNullException(nameof(childClassName));
+        }
+
         public void Execute(IServiceProvider serviceProvider)
         {
             if (serviceProvider == null)
                 throw new ArgumentNullException(nameof(serviceProvider));
 
             var context = new LocalPluginContext(serviceProvider);
-            context.Trace($"Entered {GetType().FullName}");
+            context.Trace($"Entered {ChildClassName}");
 
             try
             {
@@ -183,34 +209,34 @@ namespace <Namespace>
             {
                 context.Trace($"Unhandled exception: {ex}");
                 throw new InvalidPluginExecutionException(
-                    $"Unhandled exception in {GetType().FullName}: {ex.Message}", ex);
+                    $"Unhandled exception in {ChildClassName}: {ex.Message}", ex);
             }
             finally
             {
-                context.Trace($"Exiting {GetType().FullName}");
+                context.Trace($"Exiting {ChildClassName}");
             }
         }
 
-        protected abstract void ExecuteDataversePlugin(LocalPluginContext context);
+        protected abstract void ExecuteDataversePlugin(ILocalPluginContext localPluginContext);
     }
 
-    public class LocalPluginContext
+    internal class LocalPluginContext : ILocalPluginContext
     {
         public IServiceProvider ServiceProvider { get; }
         public IOrganizationServiceFactory ServiceFactory { get; }
         public IOrganizationService OrganizationService { get; }
-        public IOrganizationService InitiatingUserService { get; }
-        public IPluginExecutionContext ExecutionContext { get; }
+        public IOrganizationService InitiatingUserOrganizationService { get; }
+        public IPluginExecutionContext PluginExecutionContext { get; }
         public ITracingService TracingService { get; }
 
         public LocalPluginContext(IServiceProvider serviceProvider)
         {
             ServiceProvider = serviceProvider;
             TracingService = serviceProvider.GetService<ITracingService>();
-            ExecutionContext = serviceProvider.GetService<IPluginExecutionContext>();
+            PluginExecutionContext = serviceProvider.GetService<IPluginExecutionContext>();
             ServiceFactory = serviceProvider.GetService<IOrganizationServiceFactory>();
-            OrganizationService = ServiceFactory.CreateOrganizationService(ExecutionContext.UserId);
-            InitiatingUserService = ServiceFactory.CreateOrganizationService(ExecutionContext.InitiatingUserId);
+            OrganizationService = ServiceFactory.CreateOrganizationService(PluginExecutionContext.UserId);
+            InitiatingUserOrganizationService = ServiceFactory.CreateOrganizationService(PluginExecutionContext.InitiatingUserId);
         }
 
         public void Trace(string message) => TracingService.Trace(message);
@@ -246,12 +272,18 @@ namespace <Namespace>
     )]
     public class <PluginClassName> : PluginBase
     {
-        protected override void ExecuteDataversePlugin(LocalPluginContext context)
+        public <PluginClassName>(string unsecureConfiguration, string secureConfiguration)
+            : base(typeof(<PluginClassName>)) { }
+
+        protected override void ExecuteDataversePlugin(ILocalPluginContext localPluginContext)
         {
-            var target = context.ExecutionContext.InputParameters["Target"] as Entity;
+            var context = localPluginContext.PluginExecutionContext;
+            var service = localPluginContext.OrganizationService;
+
+            var target = context.InputParameters["Target"] as Entity;
             if (target == null) return;
 
-            context.Trace($"Processing {target.LogicalName} Id={target.Id}");
+            localPluginContext.Trace($"Processing {target.LogicalName} Id={target.Id}");
 
             // TODO: implement plugin logic here
         }
@@ -281,13 +313,15 @@ namespace <Namespace>
   "plugins": [
     {
       "assemblypath": "bin\\Debug\\net462\\<ProjectName>.dll",
-      "profile": "default",
+      "profile": "default,debug",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     },
     {
       "assemblypath": "bin\\Release\\net462\\<ProjectName>.dll",
       "profile": "release",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     }
@@ -303,13 +337,15 @@ namespace <Namespace>
   "plugins": [
     {
       "assemblypath": "bin\\Debug\\<ProjectName>.1.0.0.nupkg",
-      "profile": "default",
+      "profile": "default,debug",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     },
     {
       "assemblypath": "bin\\Release\\<ProjectName>.1.0.0.nupkg",
       "profile": "release",
+      "solution": "<SolutionUniqueName>",
       "classRegex": ".*",
       "connectionstring": "[[YOUR_CONNECTION_STRING]]"
     }
@@ -384,4 +420,7 @@ Tell the user:
 - [ ] Pre/Post images defined only for attributes actually needed
 - [ ] Connection strings not committed to source control
 - [ ] Third-party dependencies (e.g. Newtonsoft.Json) handled via Plugin Package, NOT ILMerge
+- [ ] `PrivateAssets=All` set on `Microsoft.CrmSdk.CoreAssemblies` (prevents SDK from being bundled — Dataverse will reject packages that include it)
 - [ ] Plugin Package version bumped on each deployment when using NuGet package approach
+- [ ] Step names treated as identities — renaming a step in `[CrmPluginRegistration]` causes spkl to create a new step; the old one must be deleted manually from the Plugin Registration Tool
+- [ ] `solution` field populated in `spkl.json` so the assembly is automatically added to the correct solution on first deployment
