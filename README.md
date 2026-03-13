@@ -16,13 +16,15 @@ Skills are invoked in Claude Code using `/skill-name` (e.g. `/spkl-plugin`).
 | [`/spkl-workflow`](#spkl-workflow) | Scaffold a custom workflow activity project with spkl deployment |
 | [`/spkl-webresource`](#spkl-webresource) | Scaffold a web resource project (TypeScript/JS) with spkl deployment |
 
+> Each skill lives at `<skill-name>/SKILL.md` within this repository.
+
 ---
 
 ## Skill Details
 
 ### `/spkl-plugin`
 
-**File:** [`spkl-plugin.md`](spkl-plugin.md)
+**File:** [`spkl-plugin/SKILL.md`](spkl-plugin/SKILL.md)
 
 Scaffolds a complete Visual Studio **Dataverse Plugin** project with:
 
@@ -45,7 +47,7 @@ Scaffolds a complete Visual Studio **Dataverse Plugin** project with:
 
 ### `/spkl-workflow`
 
-**File:** [`spkl-workflow.md`](spkl-workflow.md)
+**File:** [`spkl-workflow/SKILL.md`](spkl-workflow/SKILL.md)
 
 Scaffolds a complete Visual Studio **Custom Workflow Activity** project with:
 
@@ -68,7 +70,7 @@ Scaffolds a complete Visual Studio **Custom Workflow Activity** project with:
 
 ### `/spkl-webresource`
 
-**File:** [`spkl-webresource.md`](spkl-webresource.md)
+**File:** [`spkl-webresource/SKILL.md`](spkl-webresource/SKILL.md)
 
 Scaffolds a **Dataverse Web Resource** project with:
 
@@ -126,13 +128,19 @@ spkl webresources /p:debug
 
 ## Contributing
 
-To add a new skill, create a `.md` file in this directory with a YAML frontmatter block:
+To add a new skill:
+
+1. Create a subdirectory: `mkdir <skill-name>`
+2. Add `<skill-name>/SKILL.md` with YAML frontmatter:
 
 ```yaml
 ---
 name: skill-name
 description: One-line description of what the skill does
 ---
+
+Skill prompt content here...
 ```
 
-Then add an entry to this README.
+3. Deploy it: `cp -r <skill-name> ~/.claude/skills/`
+4. Add an entry to this README.
