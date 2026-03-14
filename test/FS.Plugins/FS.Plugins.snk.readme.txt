@@ -1,0 +1,11 @@
+Strong name key file — generate before building.
+
+Run this from the FS.Plugins/ directory:
+
+  sn -k FS.Plugins.snk
+
+Or in Visual Studio:
+  Project Properties → Build → Strong naming → Sign the assembly → New...
+
+The .snk file should be committed to source control.
+Delete this .readme.txt file once you have generated the key.

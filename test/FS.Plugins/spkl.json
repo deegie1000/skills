@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/scottdurow/SparkleXrm/master/spkl/SparkleXrm.Tasks/spkl.schema.json",
+  "plugins": [
+    {
+      "assemblypath": "bin\\Debug\\FS.Plugins.1.0.0.nupkg",
+      "profile": "default,debug",
+      "solution": "MyPlugins",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    },
+    {
+      "assemblypath": "bin\\Release\\FS.Plugins.1.0.0.nupkg",
+      "profile": "release",
+      "solution": "MyPlugins",
+      "classRegex": ".*",
+      "connectionstring": "[[YOUR_CONNECTION_STRING]]"
+    }
+  ]
+}
